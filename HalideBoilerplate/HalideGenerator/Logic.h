@@ -22,12 +22,28 @@ public:
 
 	void Realize(int * dst, int channels, int width, int height);
 
+	void Realize(int * dst, int width, int height);
+
 	void Compile(std::string path, std::vector<Argument> arg, std::string name);
 
 	void Compile(Halide::Module module, std::vector<Argument> arg, std::string name);
 
 
+	Logic Sort(ImageParam value);
+
+	Logic HNR();
+
+	Logic PreProcessSchedule();
+
+	Logic Stagger(Param<int> value);
+
+	Logic Dark(ImageParam value);
+
 	Logic Offset(Param<int> value);
+
+	Logic Bitshift(Param<int> value);
+
+	Logic BeforeDemosaicProcessSchedule();
 
 	Logic Demosaic(ImageParam src, Param<int> type);
 
@@ -61,3 +77,6 @@ public:
 
 };
 
+//color_image(x, y, c) = select(c == 0, 245, // Red value
+//	c == 1, 42,  // Green value
+//	132);        // Blue value

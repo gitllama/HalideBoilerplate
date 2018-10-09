@@ -32,7 +32,10 @@ Logic Logic::Init(ImageParam src)
 	Func output;
 	Var x, y, c;
 
-	output(c, x, y, c) = src(c, x, y);
+	if(src.dimensions() == 3)
+		output(c, x, y) = src(c, x, y);
+	else
+		output(x, y) = src(x, y);
 
 	return Logic(output);
 }
@@ -45,13 +48,17 @@ Logic Logic::Init(int* src, int channels, int width, int height)
 }
 
 
-
-
 //JITで使用する際（リアルタイムでのコンパイル
 
 void Logic::Realize(int * dst, int channels, int width, int height)
 {
 	Buffer<int> _dst(dst, channels, width, height);
+	input.realize(_dst);
+}
+
+void Logic::Realize(int * dst, int width, int height)
+{
+	Buffer<int> _dst(dst, width, height);
 	input.realize(_dst);
 }
 
@@ -78,18 +85,89 @@ void Logic::Compile(std::string path, std::vector<Argument> arg, std::string nam
 
 }
 
+
 //各Logic
+
+#pragma region pre process
+
+// データの帯域圧縮のため 24bitx4 -> 32bitx3 
+Logic Logic::Sort(ImageParam value)
+{
+	Func output("Sort");;
+	Var x, y;
+	output(x, y) = x + y * 10;
+	return Logic(output);
+}
+
+Logic Logic::HNR()
+{
+	return Logic(input);
+}
+
+Logic Logic::PreProcessSchedule()
+{
+	return Logic(input);
+}
+
+#pragma endregion
+
+
+#pragma region before Demosaic
+
+Logic Logic::Stagger(Param<int> value)
+{
+	Func output("Stagger");
+	Var x, y;
+
+	Expr row = y % 2 == 0;
+	Expr col = x < 2 || 13 < x;
+
+	output(x, y) = select(row, input(x, y),
+		col, input(x, y), input(x + value, y));
+
+	return Logic(output);
+
+	//Buffer<int> shifted(5, 7);
+    //shifted.set_min(100, 50);
+}
+
+Logic Logic::Dark(ImageParam value)
+{
+	Func output("Dark");
+	Var x, y;
+	output(x, y) = input(x, y); // - value(x, y);
+	return Logic(output);
+}
 
 Logic Logic::Offset(Param<int> value)
 {
-	Func output;
-	Var x, y, c;
+	Func output("Offset");
+	Var x, y;
 
-	output(c, x, y) = input(c, x, y) + value;
-	//brighter.vectorize(x, 16).parallel(y);
+	output(x, y) = input(x, y) + value;
 
 	return Logic(output);
 }
+
+Logic Logic::Bitshift(Param<int> value)
+{
+	Func output("Bitshift");
+	Var x, y;
+
+	output(x, y) = input(x, y) >> value;
+
+	return Logic(output);
+}
+
+Logic Logic::BeforeDemosaicProcessSchedule()
+{
+	return Logic(input);
+}
+
+#pragma endregion
+
+
+
 
 Logic Logic::Demosaic(ImageParam src, Param<int> type)
 {
@@ -179,6 +257,10 @@ Logic Logic::DemosaicMonoSchedule()
 Func Logic::_DemosaicColor(ImageParam src, int row, int col)
 {
 	Func plane = BoundaryConditions::repeat_edge(src);
+	Var c("c"), x("x"), y("y");
+
+	Expr value = plane(c, x, y);
+	value = Halide::cast<float>(value);
 
 	Func TB, X, LR, FIVE, ONE, TBLR, PLUS;
 	Func R_R, R_Gr, R_B, R_Gb;
@@ -186,7 +268,7 @@ Func Logic::_DemosaicColor(ImageParam src, int row, int col)
 	Func B_R, B_Gr, B_B, B_Gb;
 	Func layerB, layerG, layerR;
 	Func color;
-	Var c("c"), x("x"), y("y");
+
 
 	Expr evenRow = (y % 2 == row);
 	Expr evenCol = (x % 2 == col);
@@ -260,7 +342,7 @@ Logic Logic::DemosaicColorSchedule()
 	input.reorder(c, x, y).vectorize(x, 3).parallel(y);
 	//  -> 31
 
-
+	//gradient.compile_to_lowered_stmt("gradient.html", {}, HTML);
 	return Logic(input);
 }
 
@@ -436,3 +518,40 @@ Halide::Func HalideExtented::Conv3x3(Halide::Func src, int width, int height, in
 //
 //	adder.realize(output);
 //}
+
+//4つづつ
+//Var x_outer, x_inner;
+//gradient.split(x, x_outer, x_inner, 4);
+//gradient.vectorize(x_inner);
+
+//Var x_outer, x_inner;
+//gradient.split(x, x_outer, x_inner, 2);
+//gradient.unroll(x_inner);
+
+//Buffer<int> shifted(5, 7); // In the constructor we tell it the size.
+//shifted.set_min(100, 50);
+
+//producer.compute_at(consumer, y);
+//で3ライン保存のラインbyラインなしょりになりそう
+
+//producer.store_root();
+//producer.compute_at(consumer, y);
+//で3ライン保存のラインbyラインなだけど、全面ストア
+
+//producer.store_root().compute_at(consumer, x);
+//四角形にすごく
+
+//Var yo, yi;
+//consumer.split(y, yo, yi, 16);
+//consumer.parallel(yo);
+//consumer.vectorize(x, 4);
+//producer.store_at(consumer, yo);
+//producer.compute_at(consumer, yi);
+//producer.vectorize(x, 4);
+
+
+//Func histogram("histogram");
+//histogram(x) = 0;
+//RDom r(0, input.width(), 0, input.height());
+//histogram(input(r.x, r.y)) += 1;
+//Buffer<int> halide_result = histogram.realize(256);

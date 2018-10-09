@@ -164,14 +164,13 @@
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="DemosaicClass.h" />
     <ClInclude Include="Logic.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="SubLogic.h" />
     <ClInclude Include="Util.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="DemosaicClass.cpp" />
+    <ClCompile Include="MyFirstGenerator.cpp" />
     <ClCompile Include="HaildeGenerator.cpp" />
     <ClCompile Include="Logic.cpp" />
     <ClCompile Include="pch.cpp">
