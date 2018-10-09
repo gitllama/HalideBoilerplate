@@ -4,54 +4,81 @@
 #include "Halide.h"
 using namespace Halide;
 
-
 Logic::Logic()
 {
 }
 
-Logic::Logic(Func func, int width, int height, int channels)
+Logic::Logic(Func func)
 {
 	input = func;
-	_width = width;
-	_height = height;
-	_channels = channels;
 }
 
 Logic::~Logic()
 {
 }
 
-
-//JITで使用する際（リアルタイムでのコンパイル
-
-Logic Logic::Init(int width, int height, int channels)
+Logic Logic::Init()
 {
 	Func output;
 	Var x, y, c;
 
 	output(c, x, y) = 0;
 
-	return Logic(output, width, height, channels);
-	/*
-	
-	メソッドチェーンは
-	ClassName& Name(){ return *this; }
-	で記載できるが、Funcを確保する為毎度インスタンス生成
-
-	*/
+	return Logic(output);
 }
 
-Logic Logic::Init(int* src, int width, int height, int channels)
+Logic Logic::Init(ImageParam src)
 {
 	Func output;
 	Var x, y, c;
 
-	Buffer<int> _src(src, channels, width, height);
-	output(c, x, y) = _src(c, x, y);
+	output(c, x, y, c) = src(c, x, y);
 
-	return Logic(output, width, height, channels);
+	return Logic(output);
 }
 
+Logic Logic::Init(int* src, int channels, int width, int height)
+{
+	ImageParam input(type_of<int>(), 3);
+	Buffer<int> _src(src, channels, width, height);
+	return Init(input);
+}
+
+
+
+
+//JITで使用する際（リアルタイムでのコンパイル
+
+void Logic::Realize(int * dst, int channels, int width, int height)
+{
+	Buffer<int> _dst(dst, channels, width, height);
+	input.realize(_dst);
+}
+
+
+//AOTで使用する際（事前コンパイルでDLLを生成
+
+void Logic::Compile(std::string path, std::vector<Argument> arg, std::string name)
+{
+	input.compile_to_static_library(path, arg, name);
+	printf("Halide pipeline compiled, %s\n", path);
+
+	/*
+	Target target;
+	target.os = Target::Windows; // The operating system
+	target.arch = Target::X86;
+	target.bits = 64;            // The bit-width of the architecture
+	std::vector<Target::Feature> x86_features;
+	x86_features.push_back(Target::AVX);
+	x86_features.push_back(Target::SSE41);
+	target.set_features(x86_features);
+
+	brighter.compile_to_static_library(path, arg, name, target);
+	*/
+
+}
+
+//各Logic
 
 Logic Logic::Offset(Param<int> value)
 {
@@ -59,86 +86,117 @@ Logic Logic::Offset(Param<int> value)
 	Var x, y, c;
 
 	output(c, x, y) = input(c, x, y) + value;
+	//brighter.vectorize(x, 16).parallel(y);
 
-	return Logic(output, _width, _height, _channels);
+	return Logic(output);
 }
 
-
-void Logic::Finalize()
+Logic Logic::Demosaic(ImageParam src, Param<int> type)
 {
-	input.realize(_channels, _width, _height);
-}
-
-void Logic::Finalize(int * dst)
-{
-	Buffer<int> _dst(dst, _channels, _width, _height);
-	input.realize(_dst);
-
-	/*
-	
-	直接用意された配列に放り込んだ方がメモリマネジメント的に
-	何かと便利なのであまり用途はないが
-
-	Buffer<unsigned char> output = input.realize(width, height, channels);
-
-	とすることで下記のように各要素にアクセス可能。
-
-	横サイズ : output.width();
-	縦サイズ : output.height();
-	チャネル数 : output.channels();
-    要素 : output(x,y,c);
-　　先頭ポインタ : output.begin(); / output2.data();
-    最後尾ポインタ : output.end();
-	
-	*/
-}
-
-void Logic::Finalize(uint8_t * dst)
-{
-	Buffer<uint8_t> _dst(dst, _channels, _width, _height);
-	input.realize(_dst);
-}
-
-Logic Logic::DemosaicMono(int * src)
-{
+	Func mono, color, rg, gr, bg, gb;
 	Func output;
-	Var x, y, c;
+	Var c("c"), x("x"), y("y");
 
-	Buffer<int> _src(src, _width, _height);
-	output(c, x, y) = _src(x, y);
+	Expr isMono = type == 0;
+	Expr isRG = type == 1;
+	Expr isGR = type == 2;
+	Expr isGB = type == 3;
+	Expr isBG = type == 4;
 
-	return Logic(output, _width, _height, _channels);
+	Func plane = BoundaryConditions::repeat_edge(src);
+
+	rg = _DemosaicColor(src, 0, 0);
+	gr = _DemosaicColor(src, 1, 0);
+	gb = _DemosaicColor(src, 0, 1);
+	bg = _DemosaicColor(src, 1, 1);
+
+	mono(c, x, y) = plane(0, x, y);
+	color(c, x, y) = select(isRG, rg(c, x, y), 
+						select(isGR, gr(c, x, y), 
+							select(isGB, gb(c, x, y), bg(c, x, y))));
+
+
+	output(c, x, y) = select(isMono, mono(c, x, y), color(c, x, y));
+
+
+	output.reorder(x, y, c).unroll(x, 2).unroll(y, 2).vectorize(c, 3).parallel(y);
+
+	//mono 8k,4k
+	// まとめちゃうとあかん
+	// default : 65
+	// output.reorder(x, y, c).vectorize(c, 3) : 39
+	// output.reorder(x, y, c).vectorize(c, 3).parallel(y) : 31
+
+	return Logic(output);
 }
 
-//0-0 RG
-//1-0 GR
-//0-1 GB
-//1-1 BG
-Logic Logic::Demosaic(int * src, int a,int b)
+Logic Logic::DemosaicMono(ImageParam src)
 {
-	Func output("demosaic");
-	Var x("x"), y("y"), c("c");
+	Func mono;
+	Func output;
+	Var c("c"), x("x"), y("y");
 
-	Expr evenRow = (y % 2 == a);
-	//Expr oddRow = (y % 2 == 1);
-	Expr evenCol = (x % 2 == b);
-	//Expr oddCol = (x % 2 == 1);
+	mono(x, y) = src(0, x, y);
+	output(c, x, y) = mono(x, y);
 
-	Buffer<int> _src(src, _width, _height);
-	Func plane = BoundaryConditions::repeat_edge(_src);
+	return Logic(output);
+}
+
+Logic Logic::DemosaicMonoSchedule()
+{
+	Var c("c"), x("x"), y("y");
+
+	//mono 8kx4k
+	// colorとまとめてしまうと、bayer差の分岐が外に出ていないので
+	// 逆に遅くなる -> 方法は？
+
+	// ロジックと分離しているが、nameが効いてるのでc,x,yは認識する
+	// 別の名前付けるとエラー吐く
+
+	// default 
+	//  -> 63
+	// input.reorder(x, y, c).vectorize(c, 3);
+	//  -> 41
+	// input.reorder(x, y, c).vectorize(c, 3).parallel(y);
+	//  -> 33
+	// input.reorder(c, x, y).parallel(y);
+	//  -> 33
+
+	// input.reorder(c, x, y).unroll(c, 3);
+	//  -> 72
+	// input.reorder(x, y, c).unroll(c, 3);
+	//  -> 111
+
+	// input.reorder(c, x, y).unroll(c, 3).parallel(y);
+	//  -> 33
+
+	//ただのメモリコピーなのでなかなかはやくならない
+
+	input.reorder(c, x, y).parallel(y);
+	return Logic(input);
+}
+
+Func Logic::_DemosaicColor(ImageParam src, int row, int col)
+{
+	Func plane = BoundaryConditions::repeat_edge(src);
 
 	Func TB, X, LR, FIVE, ONE, TBLR, PLUS;
-	
-	ONE(x, y) = plane(x, y);
-	LR(x, y) = (plane(x - 1, y) + plane(x + 1, y)) / 2;
-	TB(x, y) = (plane(x, y - 1) + plane(x, y + 1)) / 2;
-	X(x, y) = (plane(x - 1, y - 1) + plane(x + 1, y - 1) + plane(x - 1, y + 1) + plane(x + 1, y + 1)) / 4;
-	PLUS(x, y) = (plane(x - 1, y) + plane(x + 1, y) + plane(x, y - 1) + plane(x, y + 1)) / 4;
-	FIVE(x, y) = (plane(x, y) + (plane(x - 1, y - 1) + plane(x + 1, y - 1) + plane(x - 1, y + 1) + plane(x + 1, y + 1)) / 4) / 2;
-
 	Func R_R, R_Gr, R_B, R_Gb;
 	Func G_R, G_Gr, G_B, G_Gb;
 	Func B_R, B_Gr, B_B, B_Gb;
+	Func layerB, layerG, layerR;
+	Func color;
+	Var c("c"), x("x"), y("y");
+
+	Expr evenRow = (y % 2 == row);
+	Expr evenCol = (x % 2 == col);
+
+	ONE(x, y) = plane(0, x, y);
+	LR(x, y) = saturating_cast<int>((plane(0, x - 1, y) + plane(0, x + 1, y)) / 2.0f);
+	TB(x, y) = saturating_cast<int>((plane(0, x, y - 1) + plane(0, x, y + 1)) / 2.0f);
+	X(x, y) = saturating_cast<int>((plane(0, x - 1, y - 1) + plane(0, x + 1, y - 1) + plane(0, x - 1, y + 1) + plane(0, x + 1, y + 1)) / 4.0f);
+	PLUS(x, y) = saturating_cast<int>((plane(0, x - 1, y) + plane(0, x + 1, y) + plane(0, x, y - 1) + plane(0, x, y + 1)) / 4.0f);
+	FIVE(x, y) = saturating_cast<int>((2.0f * plane(0, x, y) + plane(0, x - 1, y - 1) + plane(0, x + 1, y - 1) + plane(0, x - 1, y + 1) + plane(0, x + 1, y + 1)) / 8.0f);
 
 	R_R(x, y) = ONE(x, y);
 	R_Gr(x, y) = LR(x, y);
@@ -155,14 +213,10 @@ Logic Logic::Demosaic(int * src, int a,int b)
 	G_B(x, y) = PLUS(x, y);
 	G_Gb(x, y) = FIVE(x, y);
 
-
-
-	Func layerR, layerG, layerB;
-
 	layerR(x, y) = select(evenRow,
-		select(evenCol, R_R(x, y) , R_Gr(x, y)),
+		select(evenCol, R_R(x, y), R_Gr(x, y)),
 		select(evenCol, R_Gb(x, y), R_B(x, y))
-		);
+	);
 	layerG(x, y) = select(evenRow,
 		select(evenCol, G_R(x, y), G_Gr(x, y)),
 		select(evenCol, G_Gb(x, y), G_B(x, y))
@@ -172,41 +226,74 @@ Logic Logic::Demosaic(int * src, int a,int b)
 		select(evenCol, B_Gb(x, y), B_B(x, y))
 	);
 
-	output(c, x, y) = select(c == 0, layerB(x, y), select(c == 1, layerG(x, y), layerR(x, y)));
-	
-	Var xi, yi;
-	
-	//56
-	//何もなし
+	color(c, x, y) = select(c == 0, layerB(x, y), select(c == 1, layerG(x, y), layerR(x, y)));
 
-	//70
-	//output.tile(x, y, xi, yi, 3, 3);
-
-	//3600
-	//output.parallel(c);
-
-	//3525
-	//output.unroll(c).parallel(c);
-	
-	//3357
-	//output.reorder(c, x, y).unroll(c).parallel(c);
-
-	//68
-	output.unroll(c,3).vectorize(c, 3);;
-	output.print_loop_nest();
-
-	//consumer.trace_stores();
-	//output.unroll(c).vectorize(c,3);
-
-
-	//15
-	//output.tile(x, y, xi, yi, 3, 3).unroll(yi).unroll(xi).parallel(y); //yiループを展開
-
-
-
-	return Logic(output, _width, _height, _channels);
+	return color;
 }
 
+Logic Logic::DemosaicColor(ImageParam src, int row, int col)
+{
+	Func output;
+	Func color = _DemosaicColor(src, row, col);
+	Var c("c"), x("x"), y("y");
+
+	output(c, x, y) = color(c,x,y);
+
+	return Logic(output);
+}
+
+Logic Logic::DemosaicColorSchedule()
+{
+	Var c("c"), x("x"), y("y");
+
+	//color 8kx4k
+
+	// default 
+	//  -> 280
+	// input.reorder(c, x, y).unroll(c, 3).parallel(y);
+	//  -> 85
+	// input.reorder(c, x, y).parallel(y);
+	// -> 78
+	// input.reorder(c, x, y).unroll(c, 3).vectorize(x,3).parallel(y);
+	//  -> 37
+
+	input.reorder(c, x, y).vectorize(x, 3).parallel(y);
+	//  -> 31
+
+
+	return Logic(input);
+}
+
+
+
+
+
+
+
+//56
+//何もなし
+
+//70
+//output.tile(x, y, xi, yi, 3, 3);
+
+
+//output.parallel(c);
+//output.unroll(c).parallel(c);
+//output.reorder(c, x, y).unroll(c).parallel(c);
+
+//68
+//output.unroll(c, 3).vectorize(c, 3);;
+//output.print_loop_nest();
+
+//consumer.trace_stores();
+//output.unroll(c).vectorize(c,3);
+
+
+//15
+//output.tile(x, y, xi, yi, 3, 3).unroll(yi).unroll(xi).parallel(y); //yiループを展開
+
+
+/*
 Logic Logic::Clamp(int * src, int left, int top) {
 	Func output;
 	Var x, y, c;
@@ -223,29 +310,11 @@ Logic Logic::Clamp(int * src, int left, int top) {
 	//input_16(x, y, c) = cast<uint16_t>(clamped(x, y, c));
 }
 
+*/
 
-//AOTで使用する際（事前コンパイルでDLLを生成
 
-//Logic Logic::Init(ImageParam src)
-//{
-//	Func output;
-//	Var x, y, c;
-//
-//	output(x, y, c) = src(x, y, c);
-//
-//	return Logic(output);
-//}
 
-//Logic Logic::Offset(Param<int> value)
-//{
-//	Func output;
-//	Var x, y, c;
-//
-//	output(x, y, c) = input(x, y, c) + value;
-//	//brighter.vectorize(x, 16).parallel(y);
-//
-//	return Logic(output);
-//}
+
 
 //Logic Logic::Demosaic(Param<int> type)
 //{
@@ -270,64 +339,8 @@ Logic Logic::Clamp(int * src, int left, int top) {
 //	return Logic(output);
 //}
 
-//void Logic::Compile(std::string path, std::vector<Argument> arg, std::string name)
-//{
-//	input.compile_to_static_library(path, arg, name);
-//	printf("Halide pipeline compiled, %s\n", path);
-//
-//	/*
-//	Target target;
-//	target.os = Target::Windows; // The operating system
-//	target.arch = Target::X86;
-//	target.bits = 64;            // The bit-width of the architecture
-//	std::vector<Target::Feature> x86_features;
-//	x86_features.push_back(Target::AVX);
-//	x86_features.push_back(Target::SSE41);
-//	target.set_features(x86_features);
-//
-//	brighter.compile_to_static_library(path, arg, name, target);
-//	*/
-//
-//}
-//
-
-//Logic Logic::Init(int * src, int width, int height)
-//{
-//	Buffer<int> buf(src, width, height);
-//	Func output;
-//	Var x, y;
-//
-//	Func a = BoundaryConditions::repeat_edge(buf);
-//
-//	output(x, y) = a(x, y);
-//
-//	HalideExtented dst;
-//	dst._width = width;
-//	dst._height = height;
-//	dst.func = output;
-//
-//	return dst;
-//}
-//
 
 
-
-
-
-//HalideExtented HalideExtented::Offset(int value)
-//{
-//	Func output;
-//	Var x, y;
-//
-//	output(x, y) = func(x,y) + value;
-//
-//	HalideExtented dst;
-//	dst._width = _width;
-//	dst._height = _height;
-//	dst.func = output;
-//
-//	return dst;
-//}
 
 
 //HalideExtented HalideExtented::Stagger(int value)
