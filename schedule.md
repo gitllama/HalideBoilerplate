@@ -102,10 +102,41 @@ Func filter(Func input) {
 > blur_x.compute_root() : blur_y評価前に全領域計算される  
 > blur_x.compute_at(blur_y, x) :
 
+```cpp
+Func f("f_local"), g("g_local");
+f(x, y) = x + y;
+g(x, y) = 2 * f(x, y) + 3;
+f.compute_root();
+
+Func f_in_g = f.in(g);
+f_in_g.compute_root();
+
+/*
+Func f_in_g("f_in_g"), f("f"), g("g");
+f(x, y) = x + y;
+f_in_g(x, y) = f(x, y);
+g(x, y) = 2 * f_in_g(x, y) + 3;
+f.compute_root();
+f_in_g.compute_root();
+g.compute_root();
+と等価
+*/
+// 以下のように途中でメモリ確保が増える
+// for y:
+//   for x:
+//     f(x, y) = x + y
+// for y:
+//   for x:
+//     f_in_g(x, y) = f(x, y)
+// for y:
+//   for x:
+//     g(x, y) = 2 * f_in_g(x, y) + 3
+```
+
 #### 並列化
 
-- parallel(x) : 横に二分割
-- parallel(y) : 縦に二分割
+- parallel(x) : 横に分割
+- parallel(y) : 縦に分割
 
 #### ベクトル化
 
