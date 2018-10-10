@@ -15,25 +15,42 @@ public:
 	Logic(Func func);
 	~Logic();
 
-	static Logic Init(ImageParam src);
-	static Logic Init();
 
+
+	void printArray(int * _src, int * _dst, int w, int h);
+
+	static Logic Init();
+	static Logic Init(int dim);
+	static Logic Init(ImageParam src);
+
+	static Logic Init(int * src, int width, int height);
 	static Logic Init(int * src, int channels, int width, int height);
 
-	void Realize(int * dst, int channels, int width, int height);
+	template<typename T, typename... Ts>
+	void speedTest(T * dst, Ts... args);
 
-	void Realize(int * dst, int width, int height);
+	//template<typename T>
+	//void Realize(T * dst, int n);
 
+	//template<typename T>
+	//void Realize(T * dst, int width, int height);
+
+	template<typename T, typename... Ts>
+	void Realize(T * dst, Ts... args);
+
+	void CompileWithRuntime(std::string path, std::vector<Argument> arg, std::string name);
 	void Compile(std::string path, std::vector<Argument> arg, std::string name);
 
-	void Compile(Halide::Module module, std::vector<Argument> arg, std::string name);
 
-
-	Logic Sort(ImageParam value);
+	Logic Sort(ImageParam src);
 
 	Logic HNR();
 
 	Logic PreProcessSchedule();
+
+	Logic SortSchedule();
+
+	Logic BeforeDemosaicProcessSchedule();
 
 	Logic Stagger(Param<int> value);
 
@@ -43,11 +60,15 @@ public:
 
 	Logic Bitshift(Param<int> value);
 
-	Logic BeforeDemosaicProcessSchedule();
-
 	Logic Demosaic(ImageParam src, Param<int> type);
 
 	Logic DemosaicMono(ImageParam src);
+
+	Logic DemosaicBitshift(Param<int> value);
+
+	Logic DemosaicLUT(ImageParam lut);
+
+	Logic DemosaicHistogram(ImageParam src);
 
 	Logic DemosaicMonoSchedule();
 
@@ -59,24 +80,7 @@ public:
 
 
 
-
-
-
-	Logic Clamp(int * src, int left, int top);
-
-	Logic Clamp();
-
-
-
-
-
-
-	Logic Demosaic(Param<int> type);
-
-	Logic ToByte();
-
 };
 
-//color_image(x, y, c) = select(c == 0, 245, // Red value
-//	c == 1, 42,  // Green value
-//	132);        // Blue value
+
+
