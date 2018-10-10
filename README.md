@@ -2,7 +2,7 @@
 
 ## Description
 
-まだまだ日本語の情報が少ないHaildeですがBoilerplate作ってみる。
+まだまだ日本語の情報が少ないHailde（ハライド）ですがBoilerplate作ってみる。
 
 C#でGUIを作るので、DLLにします。  
 
@@ -47,10 +47,12 @@ Logic.cpp / Logic.hにロジックを記述します。
 
 特に意味はないのですが、個人的な趣味でロジックの組み合わせをメソッドチェーンで記述できるようにしています。
 
-プロジェクト実行後、```main()```内の```Logic::Compile("hoge", { input }, "hoge");```記述に応じて、ライブラリが生成される(hoge.h, hoge.lib)
+プロジェクト実行後、```main()```内の```Logic::Compile("hoge", { input }, "hoge");```記述に応じて、ライブラリが生成されます(hoge.h, hoge.lib)
 
 ### 3. HalideGenerated Setting
 
 HalideGeneratorと同様の設定に加えて、HalideGeneratorで生成された.libのリンカー参照と.hのプロジェクト追加する。
+
+特に考慮無しに```compile_to_static_library```、```compile_to_file```行うと付属の関数群が.lib/.objに同梱されます。そのままでは、リンク時に関数名の衝突が発生し、リンカーで落ちますので```Target```で```Target::NoRuntime```を行うこと。
 
 ※ライブラリの依存解決が面倒だったので、コンソールアプリとしてプロジェクト作成してDLLに変更してます。ビルド設定やスクリプトなどでもっとスマートな設定がありそうですが、そのあたりはご愛嬌ということで。
