@@ -5,6 +5,10 @@
 using namespace Halide;
 
 
+// Varはx, y ,cの順にしておいた方が良い
+// width()とかと食い違いが発生する
+// bitmapは出力入力時の次元の変換で対応
+
 #pragma region Constructor / Destructor
 
 Logic::Logic()
@@ -25,35 +29,6 @@ Logic::~Logic()
 
 #pragma region Util
 
-template<typename T, typename... Ts>
-void Logic::speedTest(T * dst, Ts... args)
-{
-	std::chrono::system_clock::time_point  start, end;
-	for (int i = 0; i < 10; i++)
-	{
-		std::cout << i << ":";
-		start = std::chrono::system_clock::now();
-
-		//if (input.dimensions() == 3)
-		//{
-		//	//int n = sizeof...(args)
-		//	//(*this).Realize(dst, 3, width, height);
-		//}
-		//else if (input.dimensions() == 1)
-		//{
-		//	//(*this).Realize(dst, width);
-		//}
-		//else 
-		//{
-			//(*this).Realize(dst, width, height);
-		//}
-		(*this).Realize(dst, args);
-
-		end = std::chrono::system_clock::now();
-		double elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-		printf("%f ms\r\n", elapsed);
-	}
-}
 
 void Logic::printArray(int* _src, int* _dst, int w, int h) {
 	printf("input : \r\n");
@@ -98,7 +73,7 @@ Logic Logic::Init(int dim)
 			output(i) = 0;
 			break;
 		case 3:
-			output(c, x, y) = 0;
+			output(x, y, c) = 0;
 			break;
 		default:
 			output(x, y) = 0;
@@ -119,7 +94,7 @@ Logic Logic::Init(ImageParam src)
 			output(x, y) = src(x, y);
 			break;
 		case 3:
-			output(c, x, y) = src(c, x, y);
+			output(x, y, c) = src(x, y, c);
 			break;
 		default:
 			output(x, y) = src(x, y);
@@ -150,26 +125,7 @@ Logic Logic::Init(int* src, int channels, int width, int height)
 
 //JITで使用する際（リアルタイムでのコンパイル
 
-//template<typename T>
-//void Logic::Realize(T * dst, int n)
-//{
-//	Buffer<T> _dst(dst, n);
-//	input.realize(_dst);
-//}
-
-//template<typename T>
-//void Logic::Realize(T * dst, int width, int height)
-//{
-//	Buffer<T> _dst(dst, width, height);
-//	input.realize(_dst);
-//}
-
-template<typename T, typename... Ts>
-void Logic::Realize(T * dst, Ts... args)
-{
-	Buffer<T> _dst(dst, args);
-	input.realize(_dst);
-}
+//ヘッダ側参照
 
 //AOTで使用する際（事前コンパイルでDLLを生成
 
@@ -365,11 +321,12 @@ Logic Logic::BeforeDemosaicProcessSchedule()
 
 #pragma region Demosaic
 
+
 Logic Logic::Demosaic(ImageParam src, Param<int> type)
 {
 	Func mono, color, rg, gr, bg, gb;
 	Func output;
-	Var c("c"), x("x"), y("y");
+	Var x("x"), y("y"), c("c");
 
 	Expr isMono = type == 0;
 	Expr isRG = type == 1;
@@ -384,13 +341,13 @@ Logic Logic::Demosaic(ImageParam src, Param<int> type)
 	gb = _DemosaicColor(src, 0, 1);
 	bg = _DemosaicColor(src, 1, 1);
 
-	mono(c, x, y) = plane(0, x, y);
-	color(c, x, y) = select(isRG, rg(c, x, y), 
-						select(isGR, gr(c, x, y), 
-							select(isGB, gb(c, x, y), bg(c, x, y))));
+	mono(x, y, c) = plane(x, y, 0);
+	color(x, y, c) = select(isRG, rg(x, y, c),
+						select(isGR, gr(x, y, c),
+							select(isGB, gb(x, y, c), bg(x, y, c))));
 
 
-	output(c, x, y) = select(isMono, mono(c, x, y), color(c, x, y));
+	output(x, y, c) = select(isMono, mono(x, y, c), color(x, y, c));
 
 
 	output.reorder(x, y, c).unroll(x, 2).unroll(y, 2).vectorize(c, 3).parallel(y);
@@ -408,10 +365,10 @@ Logic Logic::DemosaicMono(ImageParam src)
 {
 	Func mono;
 	Func output;
-	Var c("c"), x("x"), y("y");
+	Var x("x"), y("y"), c("c");
 
 	mono(x, y) = src(x, y);
-	output(c, x, y) = mono(x, y);
+	output(x, y, c) = mono(x, y);
 
 	return Logic(output);
 }
@@ -419,9 +376,9 @@ Logic Logic::DemosaicMono(ImageParam src)
 Logic Logic::DemosaicBitshift(Param<int> value)
 {
 	Func output;
-	Var c("c"), x("x"), y("y");
+	Var x("x"), y("y"), c("c");
 
-	output(c, x, y) = input(c, x, y) >> value;
+	output(x, y, c) = input(x, y, c) >> value;
 
 	return Logic(output);
 }
@@ -429,10 +386,10 @@ Logic Logic::DemosaicBitshift(Param<int> value)
 Logic Logic::DemosaicLUT(ImageParam lut)
 {
 	Func output;
-	Var c("c"), x("x"), y("y");
+	Var x("x"), y("y"), c("c");
 
-	Expr clamped = clamp(input(c, x, y), 0, INT32_MAX - 1);
-	output(c, x, y) = lut(clamped);
+	Expr clamped = clamp(input(x, y, c), 0, INT32_MAX - 1);
+	output(x, y, c) = lut(clamped);
 
 	return Logic(output);
 }
@@ -440,12 +397,12 @@ Logic Logic::DemosaicLUT(ImageParam lut)
 Logic Logic::DemosaicHistogram(ImageParam src)
 {
 	Func output("histogram");
-	Var c("c"), x("x"), y("y"), i("i");
+	Var x("x"), y("y"), c("c"), i("i");
 
 	RDom r(0, src.width(), 0, src.height());
 
 	//output(x) = 0;
-	output(src(r.x, r.y)) += 1;
+	output(src(r.x, r.y, 0)) += 1;
 	//Buffer<int> halide_result = histogram.realize(256);
 
 	return Logic(input);
@@ -455,7 +412,7 @@ Logic Logic::DemosaicHistogram(ImageParam src)
 
 Logic Logic::DemosaicMonoSchedule()
 {
-	Var c("c"), x("x"), y("y");
+	Var x("x"), y("y"), c("c");
 
 	//mono 8kx4k
 	// colorとまとめてしまうと、bayer差の分岐が外に出ていないので
@@ -482,8 +439,170 @@ Logic Logic::DemosaicMonoSchedule()
 	return Logic(input);
 }
 
+
+Logic Logic::DemosaicColor(ImageParam src, int row, int col)
+{
+	Func output;
+	Var x("x"), y("y"), c("c");
+	Expr evenRow = (y % 2 == row);
+	Expr evenCol = (x % 2 == col);
+
+	Func planeInt = BoundaryConditions::repeat_edge(src);
+	Func plane;
+	plane(x, y) = cast<float>(planeInt(x, y));
+
+	Expr R_R, R_Gr, R_B, R_Gb;
+	Expr G_R, G_Gr, G_B, G_Gb;
+	Expr B_R, B_Gr, B_B, B_Gb;
+	Func layerB, layerG, layerR;
+
+	R_R = AAA(plane, 0)(x, y);
+	R_Gr = AAA(plane, 1)(x, y);
+	R_B = AAA(plane, 3)(x, y);
+	R_Gb = AAA(plane, 2)(x, y);
+
+	B_R = AAA(plane, 3)(x, y);
+	B_Gr = AAA(plane, 2)(x, y);
+	B_B = AAA(plane, 0)(x, y);
+	B_Gb = AAA(plane, 1)(x, y);
+
+	G_R = AAA(plane, 4)(x, y);
+	G_Gr = AAA(plane, 5)(x, y);
+	G_B = AAA(plane, 4)(x, y);
+	G_Gb = AAA(plane, 5)(x, y);
+
+	layerR(x, y) = select(evenRow,
+		select(evenCol, R_R, R_Gr),
+		select(evenCol, R_Gb, R_B)
+	);
+	layerG(x, y) = select(evenRow,
+		select(evenCol, G_R, G_Gr),
+		select(evenCol, G_Gb, G_B)
+	);
+	layerB(x, y) = select(evenRow,
+		select(evenCol, B_R, B_Gr),
+		select(evenCol, B_Gb, B_B)
+	);
+
+	output(x, y, c) = select(c == 0, layerB(x, y), c == 1, layerG(x, y), layerR(x, y));
+	return Logic(output);
+}
+
+Logic Logic::Transform(ImageParam matrix)
+{
+	Func output;
+	Var x("x"), y("y"), c("c");
+
+	Expr B = matrix(0, 0) * input(x, y, 0) + matrix(1, 0) * input(x, y, 1) + matrix(2, 0) * input(x, y, 2);
+	Expr G = matrix(0, 1) * input(x, y, 0) + matrix(1, 1) * input(x, y, 1) + matrix(2, 1) * input(x, y, 2);
+	Expr R = matrix(0, 2) * input(x, y, 0) + matrix(1, 2) * input(x, y, 1) + matrix(2, 2) * input(x, y, 2);
+
+	output(x, y, c) = select(c == 0, B, c==1, G, R);
+
+	return Logic(output);
+}
+
+Logic Logic::ToInt()
+{
+	Func output;
+	Var x("x"), y("y"), c("c");
+
+	output(x, y, c) = saturating_cast<int>(input(x, y, c));
+
+	return Logic(output);
+}
+
+Logic Logic::LUT2Byte(ImageParam lut)
+{
+	Func clamped, input_Y, output;
+	Var x("x"), y("y"), c("c");
+
+	clamped(x, y, c) = clamp(input(x, y, c), 0, INT32_MAX);
+
+	input_Y(x, y) = saturating_cast<int>(0.114f * clamped(x, y, 0) + 0.587f * clamped(x, y, 1) + 0.299f * clamped(x, y, 2));
+	Expr e = lut(clamp(input_Y(x, y), 0, lut.width() - 1));
+
+	output(x, y, c) = saturating_cast<uint8_t>(input(x, y, c) * e / input_Y(x, y));
+
+	return Logic(output);
+}
+
+Func Logic::AAA(Func input, int type)
+{
+	Func output;
+	Var x("x"), y("y"), c("c");
+	switch (type) 
+	{
+	case 1: // L-R
+		output(x, y) = (input(x - 1, y) + input(x + 1, y)) / 2.0f;
+		break;
+	case 2: // T-B
+		output(x, y) = (input(x, y - 1) + input(x, y + 1)) / 2.0f;
+		break;
+	case 3: // LT-RT-LB-RB
+		output(x, y) = ( input(x - 1, y - 1) + input(x + 1, y - 1) 
+					   + input(x - 1, y + 1) + input(x + 1, y + 1) ) / 4.0f;
+		break;
+	case 4: // T-B-L-R
+		output(x, y) = ( input(x - 1, y) + input(x + 1, y)
+			           + input(x, y - 1) + input(x, y + 1) ) / 4.0f;
+		break;
+	case 5: // LT-RT-LB-RB-C
+		output(x, y) = ( 4.0f * input(x , y) 
+			           + input(x - 1, y - 1) + input(x + 1, y - 1)
+			           + input(x - 1, y + 1) + input(x + 1, y + 1) ) / 8.0f;
+		break;
+	default: // C
+		output(x, y) = input(x, y);
+		break;
+
+	}
+	return output;
+}
+
+
+
+Logic Logic::DemosaicColorSchedule()
+{
+	Var x("x"), y("y"), c("c"), xi, yi,ci, fused;
+
+	//color 8kx4k
+
+	// default 
+	//  -> 280
+	// input.reorder(c, x, y).unroll(c, 3).parallel(y);
+	//  -> 85
+	// input.reorder(c, x, y).parallel(y);
+	// -> 78
+	// input.reorder(c, x, y).unroll(c, 3).vectorize(x,3).parallel(y);
+	//  -> 37
+
+	input.reorder(c, x, y).vectorize(x, 3).parallel(y);
+	//  -> 31
+
+	//input.tile(x,y,xi,yi,8,4).reorder(c, xi, yi, x, y).vectorize(xi).parallel(y, 4);
+	return Logic(input);
+}
+
+
+Logic Logic::Convert_XYC2CXY()
+{
+	Func output;
+	Var x("x"), y("y"), c("c");
+
+	output(c, x, y) = input(x, y, c);
+
+	return Logic(output);
+}
+
+#pragma endregion
+
+
+
+
 Func Logic::_DemosaicColor(ImageParam src, int row, int col)
 {
+	//未修正
 	Func plane = BoundaryConditions::repeat_edge(src);
 
 	Func TB, X, LR, FIVE, ONE, TBLR, PLUS;
@@ -492,7 +611,7 @@ Func Logic::_DemosaicColor(ImageParam src, int row, int col)
 	Func B_R, B_Gr, B_B, B_Gb;
 	Func layerB, layerG, layerR;
 	Func color;
-	Var c("c"), x("x"), y("y");
+	Var x("x"), y("y"), c("c");
 
 	Expr evenRow = (y % 2 == row);
 	Expr evenCol = (x % 2 == col);
@@ -536,47 +655,6 @@ Func Logic::_DemosaicColor(ImageParam src, int row, int col)
 
 	return color;
 }
-
-Logic Logic::DemosaicColor(ImageParam src, int row, int col)
-{
-	Func output;
-	Func color = _DemosaicColor(src, row, col);
-	Var c("c"), x("x"), y("y");
-
-	output(c, x, y) = color(c,x,y);
-
-	return Logic(output);
-}
-
-Logic Logic::DemosaicColorSchedule()
-{
-	Var c("c"), x("x"), y("y");
-
-	//color 8kx4k
-
-	// default 
-	//  -> 280
-	// input.reorder(c, x, y).unroll(c, 3).parallel(y);
-	//  -> 85
-	// input.reorder(c, x, y).parallel(y);
-	// -> 78
-	// input.reorder(c, x, y).unroll(c, 3).vectorize(x,3).parallel(y);
-	//  -> 37
-
-	input.reorder(c, x, y).vectorize(x, 3).parallel(y);
-	//  -> 31
-
-
-	return Logic(input);
-}
-
-
-#pragma endregion
-
-
-
-
-
 
 //ImageParam kernel{ Int(16), 2, "kernel" };
 //Param<int32_t> kernel_size{ "kernel_size", 3, 1, 5 };
