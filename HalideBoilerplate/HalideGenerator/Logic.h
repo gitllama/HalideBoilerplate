@@ -128,19 +128,7 @@ void Logic::speedTest(T * dst, Ts... args)
 	}
 }
 
-//template<typename T>
-//void Logic::Realize(T * dst, int n)
-//{
-//	Buffer<T> _dst(dst, n);
-//	input.realize(_dst);
-//}
 
-//template<typename T>
-//void Logic::Realize(T * dst, int width, int height)
-//{
-//	Buffer<T> _dst(dst, width, height);
-//	input.realize(_dst);
-//}
 
 template<typename T, typename... Ts> 
 void Logic::Realize(T * dst, Ts... args)
