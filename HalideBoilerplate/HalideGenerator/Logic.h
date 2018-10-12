@@ -19,36 +19,35 @@ public:
 
 	void printArray(int * _src, int * _dst, int w, int h);
 
-	static Logic Init();
-	static Logic Init(int dim);
-	static Logic Init(ImageParam src);
+	static Logic init();
+	static Logic init(int dim);
+	static Logic init(ImageParam src);
 
-	static Logic Init(int * src, int width, int height);
-	static Logic Init(int * src, int channels, int width, int height);
+	static Logic init(int * src, int width, int height);
+	static Logic init(int * src, int channels, int width, int height);
+
+	Logic Trim(int left, int top, int width, int height);
 
 	template<typename T, typename... Ts>
 	void speedTest(T * dst, Ts... args);
 
-	//template<typename T>
-	//void Realize(T * dst, int n);
-
-	//template<typename T>
-	//void Realize(T * dst, int width, int height);
-
 	template<typename T, typename... Ts> 
 	void Realize(T * dst, Ts... args);
 
-	void CompileWithRuntime(std::string path, std::vector<Argument> arg, std::string name);
-	void Compile(std::string path, std::vector<Argument> arg, std::string name);
+	template<typename T>
+	void RealizeTrim(T * dst, Param<int> left, Param<int> top, Param<int> width, Param<int> height);
+
+	void compileWithRuntime(std::string path, std::string name, std::vector<Argument> arg);
+	void compile(std::string path, std::string name, std::vector<Argument> arg);
 
 
-	Logic Sort(ImageParam src);
+	Logic sort(ImageParam src);
 
 	Logic HNR();
 
 	Logic PreProcessSchedule();
 
-	Logic SortSchedule();
+	Logic sortSchedule();
 
 	Logic BeforeDemosaicProcessSchedule();
 
@@ -59,6 +58,8 @@ public:
 	Logic Offset(Param<int> value);
 
 	Logic Bitshift(Param<int> value);
+
+	Logic Trim(Param<int> left, Param<int> top, Param<int> width, Param<int> height);
 
 	Logic Demosaic(ImageParam src, Param<int> type);
 
@@ -78,13 +79,14 @@ public:
 
 	Logic Transform(ImageParam matrix);
 
-	Logic ToInt();
+	Logic toInt();
 
 	Logic LUT2Byte(ImageParam lut);
 
-	Func AAA(Func input, int type);
+	Logic LUT2Byte2(ImageParam lut);
 
-	Func AAA(std::string type);
+	Func bayerInterpolation(Func input, int type);
+
 
 	Logic DemosaicColorSchedule();
 
@@ -150,4 +152,32 @@ void Logic::Realize(T * dst, Ts... args)
 	//}
 	Buffer<T> _dst(dst, args...);
 	input.realize(_dst);
+}
+
+template<typename T>
+void Logic::RealizeTrim(T * dst, Param<int> left, Param<int> top, Param<int> width, Param<int> height)
+{
+	Func output, trim;
+	Var x("x"), y("y"), c("c");
+
+	Buffer<T> shifted(width, height);
+	shifted.set_min(left, top);
+
+	input.realize(shifted);
+
+	/*
+		for (int y = 0; y < input.height(); y++) {
+			for (int x = 0; x < input.width(); x++) {
+				int i = shifted(x, y); 
+		で範囲外のアクセスは可能（ゴミが吐かれる
+	
+		dstは当然
+		for (int y = 0; y < height; y++) {
+			for (int x = 0; x < width; x++) {
+				int i = dst[x + y * width];
+
+		input(x, y) = src(x - 1, y) + src(x + 1, y);
+		のような場合でもshiftedでrealizeした場合は境界条件設定を
+		行わなくてもOK（範囲外にアクセスすれば当然エラーを吐く
+	*/
 }

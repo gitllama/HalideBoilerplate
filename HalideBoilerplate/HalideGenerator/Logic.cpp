@@ -54,15 +54,14 @@ void Logic::printArray(int* _src, int* _dst, int w, int h) {
 #pragma endregion
 
 
-
 #pragma region Init
 
-Logic Logic::Init()
+Logic Logic::init()
 {
-	return Init(0);
+	return init(0);
 }
 
-Logic Logic::Init(int dim)
+Logic Logic::init(int dim)
 {
 	Func output("Init");
 	Var x("x"), y("y"), c("c"), i("i");
@@ -83,7 +82,7 @@ Logic Logic::Init(int dim)
 	return Logic(output);
 }
 
-Logic Logic::Init(ImageParam src)
+Logic Logic::init(ImageParam src)
 {
 	Func output;
 	Var x("x"), y("y"), c("c"), i("i");
@@ -104,18 +103,23 @@ Logic Logic::Init(ImageParam src)
 	return Logic(output);
 }
 
-Logic Logic::Init(int* src, int width, int height)
+Logic Logic::init(int* src, int width, int height)
 {
 	ImageParam input(type_of<int>(), 2);
 	Buffer<int> _src(src, width, height);
-	return Init(input);
+	return init(input);
 }
 
-Logic Logic::Init(int* src, int channels, int width, int height)
+Logic Logic::init(int* src, int channels, int width, int height)
 {
 	ImageParam input(type_of<int>(), 3);
 	Buffer<int> _src(src, channels, width, height);
-	return Init(input);
+	return init(input);
+}
+
+Logic Logic::Trim(int left, int top, int width, int height)
+{
+	return Logic(input);
 }
 
 #pragma endregion
@@ -129,21 +133,22 @@ Logic Logic::Init(int* src, int channels, int width, int height)
 
 //AOTで使用する際（事前コンパイルでDLLを生成
 
-void Logic::CompileWithRuntime(std::string path, std::vector<Argument> arg, std::string name)
+void Logic::compileWithRuntime(std::string path, std::string name, std::vector<Argument> arg)
 {
-	input.compile_to_static_library(path, arg, name);
-	printf("Halide pipeline compiled, %s\n", path);
+	std::string fullpath = path + "HalideGenerated_" + name;
+	input.compile_to_static_library(fullpath, arg, name);
+	printf("Halide pipeline compiled, %s\n", name);
 }
 
-void Logic::Compile(std::string path, std::vector<Argument> arg, std::string name)
+void Logic::compile(std::string path, std::string name, std::vector<Argument> arg)
 {
+	std::string fullpath = path + "HalideGenerated_" + name;
 	Target target = get_target_from_environment();
-
 	target.set_feature(Target::NoRuntime, true);
 
-	input.compile_to_static_library(path, arg, name, target);
+	input.compile_to_static_library(fullpath, arg, name, target);
 	//input.compile_to_file(path, arg, name);
-	printf("Halide pipeline compiled, %s\n", path);
+	printf("Halide pipeline compiled, %s\n", name);
 
 	/*
 	Target target;
@@ -168,7 +173,7 @@ void Logic::Compile(std::string path, std::vector<Argument> arg, std::string nam
 #pragma region PreProcess
 
 // データの帯域圧縮のため 24bitx4 -> 32bitx3 
-Logic Logic::Sort(ImageParam src)
+Logic Logic::sort(ImageParam src)
 {
 	// AA_AA_AA_BB BB_BB_CC_CC CC_DD_DD_DD
 	int width = 1178;
@@ -217,7 +222,7 @@ Logic Logic::PreProcessSchedule()
 	return Logic(input);
 }
 
-Logic Logic::SortSchedule()
+Logic Logic::sortSchedule()
 {
 	Var x("x"), y("y"), xi("xi"), yi("yi"), fused("fused");
 
@@ -322,44 +327,6 @@ Logic Logic::BeforeDemosaicProcessSchedule()
 #pragma region Demosaic
 
 
-Logic Logic::Demosaic(ImageParam src, Param<int> type)
-{
-	Func mono, color, rg, gr, bg, gb;
-	Func output;
-	Var x("x"), y("y"), c("c");
-
-	Expr isMono = type == 0;
-	Expr isRG = type == 1;
-	Expr isGR = type == 2;
-	Expr isGB = type == 3;
-	Expr isBG = type == 4;
-
-	Func plane = BoundaryConditions::repeat_edge(src);
-
-	rg = _DemosaicColor(src, 0, 0);
-	gr = _DemosaicColor(src, 1, 0);
-	gb = _DemosaicColor(src, 0, 1);
-	bg = _DemosaicColor(src, 1, 1);
-
-	mono(x, y, c) = plane(x, y, 0);
-	color(x, y, c) = select(isRG, rg(x, y, c),
-						select(isGR, gr(x, y, c),
-							select(isGB, gb(x, y, c), bg(x, y, c))));
-
-
-	output(x, y, c) = select(isMono, mono(x, y, c), color(x, y, c));
-
-
-	output.reorder(x, y, c).unroll(x, 2).unroll(y, 2).vectorize(c, 3).parallel(y);
-
-	//mono 8k,4k
-	// まとめちゃうとあかん
-	// default : 65
-	// output.reorder(x, y, c).vectorize(c, 3) : 39
-	// output.reorder(x, y, c).vectorize(c, 3).parallel(y) : 31
-
-	return Logic(output);
-}
 
 Logic Logic::DemosaicMono(ImageParam src)
 {
@@ -456,20 +423,20 @@ Logic Logic::DemosaicColor(ImageParam src, int row, int col)
 	Expr B_R, B_Gr, B_B, B_Gb;
 	Func layerB, layerG, layerR;
 
-	R_R = AAA(plane, 0)(x, y);
-	R_Gr = AAA(plane, 1)(x, y);
-	R_B = AAA(plane, 3)(x, y);
-	R_Gb = AAA(plane, 2)(x, y);
+	R_R = bayerInterpolation(plane, 0)(x, y);
+	R_Gr = bayerInterpolation(plane, 1)(x, y);
+	R_B = bayerInterpolation(plane, 3)(x, y);
+	R_Gb = bayerInterpolation(plane, 2)(x, y);
 
-	B_R = AAA(plane, 3)(x, y);
-	B_Gr = AAA(plane, 2)(x, y);
-	B_B = AAA(plane, 0)(x, y);
-	B_Gb = AAA(plane, 1)(x, y);
+	B_R = bayerInterpolation(plane, 3)(x, y);
+	B_Gr = bayerInterpolation(plane, 2)(x, y);
+	B_B = bayerInterpolation(plane, 0)(x, y);
+	B_Gb = bayerInterpolation(plane, 1)(x, y);
 
-	G_R = AAA(plane, 4)(x, y);
-	G_Gr = AAA(plane, 5)(x, y);
-	G_B = AAA(plane, 4)(x, y);
-	G_Gb = AAA(plane, 5)(x, y);
+	G_R = bayerInterpolation(plane, 4)(x, y);
+	G_Gr = bayerInterpolation(plane, 0)(x, y);
+	G_B = bayerInterpolation(plane, 4)(x, y);
+	G_Gb = bayerInterpolation(plane, 0)(x, y);
 
 	layerR(x, y) = select(evenRow,
 		select(evenCol, R_R, R_Gr),
@@ -502,7 +469,7 @@ Logic Logic::Transform(ImageParam matrix)
 	return Logic(output);
 }
 
-Logic Logic::ToInt()
+Logic Logic::toInt()
 {
 	Func output;
 	Var x("x"), y("y"), c("c");
@@ -517,7 +484,7 @@ Logic Logic::LUT2Byte(ImageParam lut)
 	Func clamped, input_Y, output;
 	Var x("x"), y("y"), c("c");
 
-	clamped(x, y, c) = clamp(input(x, y, c), 0, INT32_MAX);
+	clamped(x, y, c) = clamp(input(x, y, c), 0.0f, saturating_cast<float>(INT32_MAX));
 
 	input_Y(x, y) = saturating_cast<int>(0.114f * clamped(x, y, 0) + 0.587f * clamped(x, y, 1) + 0.299f * clamped(x, y, 2));
 	Expr e = lut(clamp(input_Y(x, y), 0, lut.width() - 1));
@@ -527,7 +494,26 @@ Logic Logic::LUT2Byte(ImageParam lut)
 	return Logic(output);
 }
 
-Func Logic::AAA(Func input, int type)
+Logic Logic::LUT2Byte2(ImageParam lut)
+{
+	Func clamped, input_Y, input_Y2, output;
+	Func a;
+	Var x("x"), y("y"), c("c");
+	RDom r(-2, 5, -2, 5);
+
+	clamped(x, y, c) = clamp(input(x, y, c), 0.0f, saturating_cast<float>(INT32_MAX));
+	input_Y(x, y) = (0.114f * clamped(x, y, 0) + 0.587f * clamped(x, y, 1) + 0.299f * clamped(x, y, 2));
+	
+	input_Y2(x, y) = saturating_cast<int>(sum(input_Y(x + r.x, y + r.y))/25.0f);
+
+	Expr e = lut(clamp(input_Y2(x, y), 0, lut.width() - 1));
+
+	output(x, y, c) = saturating_cast<uint8_t>(input(x, y, c) * e / input_Y2(x, y));
+
+	return Logic(output);
+}
+
+Func Logic::bayerInterpolation(Func input, int type)
 {
 	Func output;
 	Var x("x"), y("y"), c("c");
@@ -710,9 +696,6 @@ color_image(x, y, c) = select(c == 0, 245, // Red value
 //gradient.split(x, x_outer, x_inner, 2);
 //gradient.unroll(x_inner);
 
-//Buffer<int> shifted(5, 7); // In the constructor we tell it the size.
-//shifted.set_min(100, 50);
-
 //producer.compute_at(consumer, y);
 //で3ライン保存のラインbyラインなしょりになりそう
 
@@ -730,3 +713,14 @@ color_image(x, y, c) = select(c == 0, 245, // Red value
 //producer.store_at(consumer, yo);
 //producer.compute_at(consumer, yi);
 //producer.vectorize(x, 4);
+
+/*
+
+
+circle(x, y) = x + y;
+RDom r(0, 7, 0, 7);
+r.where((r.x - 3)*(r.x - 3) + (r.y - 3)*(r.y - 3) <= 10);
+
+circle(r.x, r.y) *= 2;
+
+*/

@@ -4,6 +4,7 @@
 
 using namespace Halide;
 
+/*
 class MyFirstGenerator : public Halide::Generator<MyFirstGenerator> {
 public:
 	Input<uint8_t> offset{ "offset" };
@@ -17,8 +18,9 @@ public:
 	}
 };
 HALIDE_REGISTER_GENERATOR(MyFirstGenerator, my_first_generator)
+*/
 
-
+/*
 class Brighten : public Halide::Generator<Brighten> {
 public:
 	Input<Buffer<uint8_t>> input{ "input", 3 };
@@ -104,3 +106,4 @@ public:
 	}
 };
 HALIDE_REGISTER_GENERATOR(Brighten, brighten)
+*/
