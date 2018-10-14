@@ -26,9 +26,30 @@ Logic::~Logic()
 
 #pragma endregion
 
+Logic Logic::load(ImageParam src)
+{
+	Func output;
+	Var x("x"), y("y"), c("c"), i("i");
+	output = src;
+
+	//switch (src.dimensions())
+	//{
+	//case 1:
+	//	output(x, y) = src(x, y);
+	//	break;
+	//case 3:
+	//	output(x, y, c) = src(x, y, c);
+	//	break;
+	//default:
+	//	output(x, y) = src(x, y);
+	//	break;
+	//}
+
+	return Logic(output);
+}
+
 
 #pragma region Util
-
 
 void Logic::printArray(int* _src, int* _dst, int w, int h) {
 	printf("input : \r\n");
@@ -54,77 +75,6 @@ void Logic::printArray(int* _src, int* _dst, int w, int h) {
 #pragma endregion
 
 
-#pragma region Init
-
-Logic Logic::init()
-{
-	return init(0);
-}
-
-Logic Logic::init(int dim)
-{
-	Func output("Init");
-	Var x("x"), y("y"), c("c"), i("i");
-
-	switch (dim)
-	{
-		case 1:
-			output(i) = 0;
-			break;
-		case 3:
-			output(x, y, c) = 0;
-			break;
-		default:
-			output(x, y) = 0;
-			break;
-	}
-
-	return Logic(output);
-}
-
-Logic Logic::init(ImageParam src)
-{
-	Func output;
-	Var x("x"), y("y"), c("c"), i("i");
-
-	switch (src.dimensions())
-	{
-		case 1:
-			output(x, y) = src(x, y);
-			break;
-		case 3:
-			output(x, y, c) = src(x, y, c);
-			break;
-		default:
-			output(x, y) = src(x, y);
-			break;
-	}
-
-	return Logic(output);
-}
-
-Logic Logic::init(int* src, int width, int height)
-{
-	ImageParam input(type_of<int>(), 2);
-	Buffer<int> _src(src, width, height);
-	return init(input);
-}
-
-Logic Logic::init(int* src, int channels, int width, int height)
-{
-	ImageParam input(type_of<int>(), 3);
-	Buffer<int> _src(src, channels, width, height);
-	return init(input);
-}
-
-Logic Logic::Trim(int left, int top, int width, int height)
-{
-	return Logic(input);
-}
-
-#pragma endregion
-
-
 #pragma region Realize / Compile
 
 //JITで使用する際（リアルタイムでのコンパイル
@@ -135,23 +85,14 @@ Logic Logic::Trim(int left, int top, int width, int height)
 
 void Logic::compileWithRuntime(std::string path, std::string name, std::vector<Argument> arg)
 {
-	std::string fullpath = path + "HalideGenerated_" + name;
-	input.compile_to_static_library(fullpath, arg, name);
-	printf("Halide pipeline compiled, %s\n", name);
+	Target target = get_target_from_environment();
+	_complile(input, path, name, arg, target);
 }
 
 void Logic::compile(std::string path, std::string name, std::vector<Argument> arg)
 {
-	std::string fullpath = path + "HalideGenerated_" + name;
 	Target target = get_target_from_environment();
-	target.set_feature(Target::NoRuntime, true);
-
-	input.compile_to_static_library(fullpath, arg, name, target);
-	//input.compile_to_file(path, arg, name);
-	printf("Halide pipeline compiled, %s\n", name);
-
 	/*
-	Target target;
 	target.os = Target::Windows; // The operating system
 	target.arch = Target::X86;
 	target.bits = 64;            // The bit-width of the architecture
@@ -159,10 +100,18 @@ void Logic::compile(std::string path, std::string name, std::vector<Argument> ar
 	x86_features.push_back(Target::AVX);
 	x86_features.push_back(Target::SSE41);
 	target.set_features(x86_features);
-
-	brighter.compile_to_static_library(path, arg, name, target);
 	*/
+	target.set_feature(Target::NoRuntime, true);
 
+	_complile(input, path, name, arg, target);
+}
+
+void Logic::_complile(Func input, std::string path, std::string name, std::vector<Argument> arg, Target target)
+{
+	std::string fullpath = path + "HalideGenerated_" + name;
+	input.compile_to_static_library(fullpath, arg, name, target);
+	//input.compile_to_file(path, arg, name);
+	printf("Halide pipeline compiled, %s\n", name);
 }
 
 #pragma endregion

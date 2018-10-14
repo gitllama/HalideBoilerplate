@@ -33,7 +33,7 @@ HalideのライブラリへのPathの設定
 プロパティ > C/C++ > 全般 > 追加のインクルードディレクトリ
   $(SolutionDir)halide_x64\include
 
-プロパティ > リンカー > 全般 > 追加のインクルードディレクトリ
+プロパティ > リンカー > 全般 > 追加のライブラリディレクトリ
   $(SolutionDir)halide_x64\$(Configuration)
 
 プロパティ > リンカー > 入力 > 追加の依存ファイル
@@ -41,6 +41,10 @@ HalideのライブラリへのPathの設定
 
 プロパティ > ビルドイベント > ビルド前のイベント
   copy "$(SolutionDir)halide_x64\$(Configuration)\Halide.dll" "$(OutDir)\"
+
+プロパティ > ビルドイベント > ビルド後のイベント
+$(OutputPath)$(TargetFileName) -g $(OutputPath)　//main()の実行
+lib /OUT:$(OutputPath)HalideGenerated_Merge.lib $(OutputPath)HalideGenerated_*.lib
 ```
 
 ### 2. HalideGenerator Code
@@ -49,7 +53,7 @@ Logic.cpp / Logic.hにロジックを記述します。
 
 特に意味はないのですが、個人的な趣味でロジックの組み合わせをメソッドチェーンで記述できるようにしています。
 
-プロジェクト実行後、```main()```内の```Logic::Compile("hoge", { input }, "hoge");```記述に応じて、ライブラリが生成されます(hoge.h, hoge.lib)
+プロジェクト実行後、```main()```内の```Logic::Compile("./", "hoge", { input });```記述に応じて、ライブラリが生成されます(hoge.h, hoge.lib)
 
 ### 3. HalideGenerated Setting
 
@@ -57,19 +61,16 @@ HalideGeneratorと同様の設定に加えて、HalideGeneratorで生成され�
 
 ```
 プロパティ > C/C++ > 全般 > 追加のインクルードディレクトリ
-  $(SolutionDir)halide_x64\include
-  $(SolutionDir)x64\lib (HalideGeneratorでのlibの出力先)
+  $(OutputPath); (HalideGeneratorでのlibの出力先)
+  $(SolutionDir)halide_x64\include;
 
 プロパティ > リンカー > 全般 > 追加のインクルードディレクトリ
-  $(SolutionDir)halide_x64\$(Configuration)
-  $(SolutionDir)x64\lib\
+  $(OutputPath);
+  $(SolutionDir)halide_x64\$(Configuration);
 
 プロパティ > リンカー > 入力 > 追加の依存ファイル
   Halide.lib
-  HalideGenerated.lib
-
-プロパティ > ビルドイベント > ビルド前のイベント
-  lib /OUT:$(SolutionDir)x64\lib\HalideGenerated.lib $(SolutionDir)x64\lib\HalideGenerated_*.lib
+  HalideGenerated_Merge.lib;
 ```
 
 特に考慮無しに```compile_to_static_library```、```compile_to_file```行うと付属の関数群が.lib/.objに同梱されます。そのままでは、リンク時に関数名の衝突が発生し、リンカーで落ちますので```Target```で```Target::NoRuntime```を行うこと。
@@ -91,6 +92,12 @@ DllExport void Hoge(int* src, int* dst, int width, int height, int offset)
 ```
 
 ### 5. ConsoleApp Code
+
+```
+プロパティ > ビルドイベント > ビルド前のイベント
+  xcopy $(SolutionDir)x64\$(Configuration)\Halide.dll $(TargetDir)/D
+  xcopy $(SolutionDir)x64\$(Configuration)\HalideGenerated.dll $(TargetDir) /D
+```
 
 ```cs
 static class HaildeGenerated

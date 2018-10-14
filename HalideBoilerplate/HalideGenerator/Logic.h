@@ -19,19 +19,21 @@ public:
 
 	void printArray(int * _src, int * _dst, int w, int h);
 
-	static Logic init();
-	static Logic init(int dim);
-	static Logic init(ImageParam src);
+	static Logic load(ImageParam src);
+	
+	template<typename T>
+	static Logic init(T value, int dim);
 
-	static Logic init(int * src, int width, int height);
-	static Logic init(int * src, int channels, int width, int height);
+	template<typename T, typename ...Ts>
+	static Logic load(T * src, Ts ...args);
 
-	Logic Trim(int left, int top, int width, int height);
 
 	template<typename T, typename... Ts>
 	void speedTest(T * dst, Ts... args);
 
-	template<typename T, typename... Ts> 
+
+
+	template<typename T, typename... Ts>
 	void Realize(T * dst, Ts... args);
 
 	template<typename T>
@@ -39,6 +41,8 @@ public:
 
 	void compileWithRuntime(std::string path, std::string name, std::vector<Argument> arg);
 	void compile(std::string path, std::string name, std::vector<Argument> arg);
+
+	void _complile(Func input, std::string path, std::string name, std::vector<Argument> arg, Target target);
 
 
 	Logic sort(ImageParam src);
@@ -59,9 +63,6 @@ public:
 
 	Logic Bitshift(Param<int> value);
 
-	Logic Trim(Param<int> left, Param<int> top, Param<int> width, Param<int> height);
-
-	Logic Demosaic(ImageParam src, Param<int> type);
 
 	Logic DemosaicMono(ImageParam src);
 
@@ -100,36 +101,38 @@ public:
 //テンプレートはヘッダで実装しないと、コンパイル時に実体が生成されないので
 //リンカで落ちる
 
-template<typename T, typename... Ts>
-void Logic::speedTest(T * dst, Ts... args)
+template<typename T>
+Logic Logic::init(T value, int dim)
 {
-	std::chrono::system_clock::time_point  start, end;
-	for (int i = 0; i < 10; i++)
+	Func output("Init");
+	Var x("x"), y("y"), z("z"), c("c"), i("i");
+
+	switch (dim)
 	{
-		std::cout << i << ":";
-		start = std::chrono::system_clock::now();
-
-		//if (input.dimensions() == 3)
-		//{
-		//	//int n = sizeof...(args)
-		//	//(*this).Realize(dst, 3, width, height);
-		//}
-		//else if (input.dimensions() == 1)
-		//{
-		//	//(*this).Realize(dst, width);
-		//}
-		//else 
-		//{
-			//(*this).Realize(dst, width, height);
-		//}
-		(*this).Realize(dst, args...);
-
-		end = std::chrono::system_clock::now();
-		double elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-		printf("%f ms\r\n", elapsed);
+	case 1:
+		output(i) = value;
+		break;
+	case 3:
+		output(x, y, c) = value;
+		break;
+	case 4:
+		output(x, y, z, c) = value;
+		break;
+	default:
+		output(x, y) = value;
+		break;
 	}
+
+	return Logic(output);
 }
 
+template<typename T, typename... Ts>
+Logic Logic::load(T* src, Ts... args)
+{
+	ImageParam input(type_of<T>(), sizeof...(args));
+	Buffer<int> _src(src, args);
+	return load(input);
+}
 
 
 template<typename T, typename... Ts> 
@@ -146,13 +149,12 @@ void Logic::Realize(T * dst, Ts... args)
 	//		input.realize(_dst);
 	//		break;
 	//	case 3:
-
-			//break;
-
+	//		break;
 	//}
 	Buffer<T> _dst(dst, args...);
 	input.realize(_dst);
 }
+
 
 template<typename T>
 void Logic::RealizeTrim(T * dst, Param<int> left, Param<int> top, Param<int> width, Param<int> height)
@@ -181,3 +183,23 @@ void Logic::RealizeTrim(T * dst, Param<int> left, Param<int> top, Param<int> wid
 		行わなくてもOK（範囲外にアクセスすれば当然エラーを吐く
 	*/
 }
+
+
+template<typename T, typename... Ts>
+void Logic::speedTest(T * dst, Ts... args)
+{
+	std::chrono::system_clock::time_point  start, end;
+	for (int i = 0; i < 10; i++)
+	{
+		std::cout << i << ":";
+		start = std::chrono::system_clock::now();
+
+		(*this).Realize(dst, args...);
+
+		end = std::chrono::system_clock::now();
+		double elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+		printf("%f ms\r\n", elapsed);
+	}
+}
+
+
