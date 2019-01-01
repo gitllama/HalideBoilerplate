@@ -43,8 +43,8 @@ HalideのライブラリへのPathの設定
   copy "$(SolutionDir)halide_x64\$(Configuration)\Halide.dll" "$(OutDir)\"
 
 プロパティ > ビルドイベント > ビルド後のイベント
-$(OutputPath)$(TargetFileName) -g $(OutputPath)　//main()の実行
-lib /OUT:$(OutputPath)HalideGenerated_Merge.lib $(OutputPath)HalideGenerated_*.lib
+  $(OutputPath)$(TargetFileName) -g $(OutputPath)　//main()の実行
+  lib /OUT:$(OutputPath)HalideGenerated_Merge.lib $(OutputPath)HalideGenerated_*.lib
 ```
 
 ### 2. HalideGenerator Code
@@ -53,7 +53,7 @@ Logic.cpp / Logic.hにロジックを記述します。
 
 特に意味はないのですが、個人的な趣味でロジックの組み合わせをメソッドチェーンで記述できるようにしています。
 
-プロジェクト実行後、```main()```内の```Logic::Compile("./", "hoge", { input });```記述に応じて、ライブラリが生成されます(hoge.h, hoge.lib)
+ビルド後イベントで```main()```内の```Logic::compile("./", "hoge", { input });```記述に応じて、ライブラリが生成されます(hoge.h, hoge.lib)。加えて、今回は```lib.exe```を使用してlibファイルのマージを行っています。
 
 ### 3. HalideGenerated Setting
 
@@ -75,17 +75,22 @@ HalideGeneratorと同様の設定に加えて、HalideGeneratorで生成され�
 
 特に考慮無しに```compile_to_static_library```、```compile_to_file```行うと付属の関数群が.lib/.objに同梱されます。そのままでは、リンク時に関数名の衝突が発生し、リンカーで落ちますので```Target```で```Target::NoRuntime```を行うこと。
 
-リンカの設定が面倒だったのでビルドイベント前に一度libをマージしてマージ後のファイルを参照するようにしています（ワイルドカードって指定できないのでしょうか？）。また、それ以外のライブラリ依存解決も面倒だったので、プロジェクト作成時にコンソールアプリとしてして作成しDLLに変更してます。ビルド設定やスクリプトなどでもっとスマートな設定がありそうですが。
+リンカの設定が面倒だったのでビルドイベント前に一度libをマージしたファイルを参照するようにしています（ワイルドカードって指定できないのでしょうか？）。また、それ以外のライブラリ依存解決も面倒だったので、プロジェクト作成時にコンソールアプリとしてして作成しDLLに変更してます。ビルド設定やスクリプトなどでもっとスマートな設定がありそうですが。
 
 ### 4. HalideGenerated Code
 
+codeとして、C#から参照する命令を記述します。Halideが受けられる配列（構造体）は```Buffer<>```形式となるのでこの段階で変換しておきましょう。
+
 ```cpp
+#include "Halide.h"
 #include "hogehoge.h"
 
-DllExport void Hoge(int* src, int* dst, int width, int height, int offset)
+#define DLLEXPORT extern "C" __declspec(dllexport)
+
+DLLEXPORT void Hoge(int* src, int* dst, int width, int height, int offset)
 {
-	Halide::Runtime::Buffer<int> input(src, width, height, 1);
-	Halide::Runtime::Buffer<int> output(dst, width, height, 1);
+	Halide::Runtime::Buffer<int> input(src, width, height);
+	Halide::Runtime::Buffer<int> output(dst, 3, width, height, 1);
 
 	int result = hogehoge(input, offset, output);
 }
